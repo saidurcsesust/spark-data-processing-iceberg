@@ -11,15 +11,14 @@ Pipeline steps
   1.  Read property.json and search.json
   2.  Extract required fields from details
   3.  Extract required fields from search
-  4.  Run data quality checks on search
-  5.  Drop rows with missing source_id
-  6.  Deduplicate details on source_id
-  7.  Inner join  -> matched_details
+  4.  Drop rows with missing source_id
+  5.  Deduplicate details on source_id
+  6.  Inner join  -> matched_details
       Anti join   -> unmatched_details
-  8.  Build standardized final output
-  9.  Write final_output and unmatched_details to disk
-  10. Write validation_report.txt
-  11. Write structured JSON logs
+  7.  Build standardized final output
+  8.  Write final_output -> single Parquet file
+  9.  Write final_output -> Iceberg table (partitioned by country_code)
+  10. Write structured JSON logs
 """
 
 # ---------------------------------------------------------------------------
@@ -40,12 +39,12 @@ from logger import log, flush_logs
 # ---------------------------------------------------------------------------
 # Utils
 # ---------------------------------------------------------------------------
-from utils.spark_session import create_spark_session
-from utils.readers       import read_json
-from utils.transforms    import extract_details_fields, extract_search_fields, build_final_output
-from utils.cleaning      import drop_missing_source_id, deduplicate
-from utils.joins         import build_matched_unmatched
-
+from utils.spark_session  import create_spark_session
+from utils.readers        import read_json
+from utils.transforms     import extract_details_fields, extract_search_fields, build_final_output
+from utils.cleaning       import drop_missing_source_id, deduplicate
+from utils.joins          import build_matched_unmatched
+from utils.iceberg_writer import write_final_output
 
 
 # ---------------------------------------------------------------------------
@@ -70,21 +69,25 @@ def main():
     search_ext  = extract_search_fields(raw_search)
 
     # 4. Drop rows with missing source_id
-    details_clean,_ = drop_missing_source_id(details_ext)
+    details_clean, _ = drop_missing_source_id(details_ext)
 
     # 5. Deduplicate details
     details_dedup, _, _ = deduplicate(details_clean, "source_id")
 
-    # 7. Join -> matched / unmatched
+    # 6. Join -> matched / unmatched
     matched_details, _ = build_matched_unmatched(
         details_dedup, search_ext
     )
 
-    # 8. Build final output
-    final_output,_= build_final_output(matched_details)
+    # 7. Build final output
+    final_output, _ = build_final_output(matched_details)
     print("Final output schema:")
     final_output.printSchema()
-    # 19. Flush logs
+
+    # 8 & 9. Write final_output: single file + Iceberg partitioned
+    write_final_output(spark, final_output)
+
+    # 10. Flush logs
     log("DONE", "Pipeline complete")
     flush_logs()
     spark.stop()
