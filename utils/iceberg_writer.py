@@ -77,3 +77,20 @@ def _create_table_if_not_exists(spark):
     """)
     log("DDL", "rental_property Iceberg table ready",
         table=config.ICEBERG_PROPERTY_TABLE)
+
+
+# ---------------------------------------------------------------------------
+# 2. Single-file write
+# ---------------------------------------------------------------------------
+ 
+def write_single_file(final_df):
+    """
+    Write final_output to a single Parquet file by coalescing to 1 partition.
+ 
+    Parameters
+    ----------
+    final_df : Final output DataFrame.
+    """
+    log("WRITE", "Single-file write starting", path=config.OUTPUT_FINAL_DIR)
+    final_df.coalesce(1).write.mode("overwrite").parquet(config.OUTPUT_FINAL_DIR)
+    log("WRITE", "Single-file write complete", path=config.OUTPUT_FINAL_DIR)
