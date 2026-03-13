@@ -45,7 +45,6 @@ from utils.readers       import read_json
 from utils.transforms    import extract_details_fields, extract_search_fields, build_final_output
 from utils.cleaning      import drop_missing_source_id, deduplicate
 from utils.joins         import build_matched_unmatched
-from utils.quality       import search_quality_checks
 
 
 
@@ -77,7 +76,7 @@ def main():
     details_dedup, _, _ = deduplicate(details_clean, "source_id")
 
     # 7. Join -> matched / unmatched
-    matched_details, unmatched_details = build_matched_unmatched(
+    matched_details, _ = build_matched_unmatched(
         details_dedup, search_ext
     )
 
