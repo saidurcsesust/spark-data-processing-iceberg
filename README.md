@@ -78,7 +78,7 @@ to `data/property_data/`.
 
 ### Step 4 — `property_joiner.py`
 
-Left-joins `rental_property` × `property_reviews` on `id == gen_id`.
+Inner-joins `rental_property` × `property_reviews` on `id == gen_id`.
 Deduplicates review rows, aggregates per property, and uses Spark RDD `.map()`
 to write one fully-enriched JSON file per property to `data/final_data/`.
 Runs `expire_snapshots` and `remove_orphan_files` on both source tables.

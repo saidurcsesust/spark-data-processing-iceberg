@@ -109,7 +109,7 @@ def deduplicate_reviews(df: DataFrame) -> DataFrame:
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 4.  Join
-#     rental_property  LEFT JOIN  property_reviews
+#     rental_property  INNER JOIN  property_reviews
 #     Rename shared columns on the reviews side to avoid ambiguity.
 # ══════════════════════════════════════════════════════════════════════════════
 def join_tables(df_rental: DataFrame, df_reviews: DataFrame) -> DataFrame:
@@ -124,7 +124,7 @@ def join_tables(df_rental: DataFrame, df_reviews: DataFrame) -> DataFrame:
     df_joined = df_rental.join(
         df_rev,
         df_rental["id"] == df_rev["gen_id"],
-        how="left",
+        how="inner",
     ).drop("gen_id", "source_id_r")
 
     log("JOIN", "Join complete", rows=df_joined.count())
