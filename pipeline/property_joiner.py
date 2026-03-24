@@ -155,7 +155,46 @@ def generate_json_files(df_agg: DataFrame) -> list[str]:
 
 
 # -----------------------------------------------------------------------------
-# 4.  Maintenance — both tables
+# 4.  Write to Iceberg
+# -----------------------------------------------------------------------------
+def _create_table(spark: SparkSession, df: DataFrame) -> None:
+    spark.sql(
+        f"CREATE DATABASE IF NOT EXISTS "
+        f"{config.ICEBERG_CATALOG}.{config.ICEBERG_DATABASE}"
+    )
+    partition_cols = {config.PARTITION_PROPERTY}
+    non_part = [f for f in df.schema.fields if f.name not in partition_cols]
+    col_defs = ",\n  ".join(
+        f"`{f.name}` {f.dataType.simpleString()}" for f in non_part
+    )
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {config.ICEBERG_RENTALS_REVIEWS_TABLE} (
+          {col_defs},
+          {config.PARTITION_PROPERTY} string
+        )
+        USING iceberg
+        PARTITIONED BY ({config.PARTITION_PROPERTY})
+        TBLPROPERTIES (
+          'write.format.default'            = 'parquet',
+          'write.parquet.compression-codec' = 'snappy'
+        )
+    """)
+    log("DDL", "rentals_reviews table ready", table=config.ICEBERG_RENTALS_REVIEWS_TABLE)
+
+
+def write_to_iceberg(spark: SparkSession, df: DataFrame) -> None:
+    _create_table(spark, df)
+    (
+        df.writeTo(config.ICEBERG_RENTALS_REVIEWS_TABLE)
+          .option("write.format.default", "parquet")
+          .option("fanout-enabled", "true")
+          .append()
+    )
+    log("WRITE", "Iceberg write complete", table=config.ICEBERG_RENTALS_REVIEWS_TABLE)
+
+
+# -----------------------------------------------------------------------------
+# 5.  Maintenance — both tables
 # -----------------------------------------------------------------------------
 def run_maintenance(spark: SparkSession) -> None:
     log("MAINT", "Running maintenance on both tables")
@@ -192,6 +231,7 @@ def run() -> None:
     df_agg                  = aggregate_reviews_per_property(
         df_joined_dedup, JOINED_RENTAL_GROUP_COLUMNS, "id"
     )
+    write_to_iceberg(spark, df_agg)
     written                 = generate_json_files(df_agg)
 
     run_maintenance(spark)
