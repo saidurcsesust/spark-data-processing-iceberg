@@ -53,9 +53,11 @@ from spark_utils import build_spark
 from logger import log, flush_logs
 from pipeline.transform import (
     joiner_deduplicate_reviews,
-    joiner_join_tables,
     joiner_aggregate_per_property,
+    
 )
+from pipeline.json_generator import generate_json_files
+from snapshot import expire_snapshots, remove_orphan_files
 
 _OUTPUT_DIR = config.OUTPUT_FINAL_JSON
 os.makedirs(_OUTPUT_DIR, exist_ok=True)
@@ -73,102 +75,46 @@ def load_tables(spark: SparkSession) -> tuple[DataFrame, DataFrame]:
 
 
 # -----------------------------------------------------------------------------
-# 2.  RDD  →  Row  →  dict  →  JSON file
+# 2.  Join
+#     rental_property  INNER JOIN  property_reviews
+#     Rename shared columns on the reviews side to avoid ambiguity.
 # -----------------------------------------------------------------------------
-def _row_to_file(row) -> str:
-    """RDD mapper: one aggregated Row → one JSON file. Runs on executors."""
-    reviews = [
-        {
-            "review_id":               r.review_id,
-            "review_date":             r.review_date,
-            "review_year":             r.review_year,
-            "score":                   r.review_individual_score,
-            "language":                r.review_language,
-            "summary":                 r.review_summary,
-            "positive":                r.review_positive,
-            "negative":                r.review_negative,
-            "reviewer_name":           r.reviewer_name,
-            "reviewer_country":        r.reviewer_country,
-            "reviewer_travel_purpose": r.reviewer_travel_purpose,
-            "reviewer_type":           r.reviewer_type,
-        }
-        for r in (row.reviews or [])
-    ]
-
-    doc = {
-        "id":               row.id,
-        "feed_provider_id": row.feed_provider_id,
-        "property_name":    row.property_name,
-        "property_slug":    row.property_slug,
-        "country_code":     row.country_code,
-        "currency":         row.currency,
-        "usd_price":        row.usd_price,
-        "star_rating":      row.star_rating,
-        "review_score":     row.review_score,
-        "commission":       row.commission,
-        "meal_plan":        row.meal_plan,
-        "published":        row.published,
-        "data_quality_flag":row.data_quality_flag,
-        "total_reviews":    len(reviews),
-        "reviews":          reviews,
+def join_tables(df_rental: DataFrame, df_reviews: DataFrame) -> DataFrame:
+    shared = {
+        "property_name", "property_slug", "country_code", "currency",
+        "star_rating", "review_score", "published", "data_quality_flag",
     }
+    df_rev = df_reviews
+    for col in shared:
+        df_rev = df_rev.withColumnRenamed(col, f"r_{col}")
 
-    safe_id  = str(row.id).replace("/", "_").replace("\\", "_")
-    out_path = os.path.join(_OUTPUT_DIR, f"{safe_id}.json")
-    with open(out_path, "w", encoding="utf-8") as fh:
-        json.dump(doc, fh, ensure_ascii=False, indent=2, default=str)
-    return out_path
+    df_joined = df_rental.join(
+        df_rev,
+        df_rental["id"] == df_rev["gen_id"],
+        how="inner",
+    ).drop("gen_id", "source_id_r")
 
-
-def generate_json_files(df_agg: DataFrame) -> list[str]:
-    log("WRITE", "Generating final JSON files", output_dir=_OUTPUT_DIR)
-    written = df_agg.rdd.map(_row_to_file).collect()
-    log("WRITE", "JSON generation complete", files_written=len(written))
-    return written
+    log("JOIN", "Join complete", rows=df_joined.count())
+    return df_joined
 
 
 # -----------------------------------------------------------------------------
-# 3.  Maintenance — both tables
+# 4.  Maintenance — both tables
 # -----------------------------------------------------------------------------
-def _cutoff() -> str:
-    from datetime import datetime, timedelta, timezone
-    return (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _maintain(spark: SparkSession, db: str, tbl: str) -> None:
-    cat = config.ICEBERG_CATALOG
-    ts  = _cutoff()
-    try:
-        spark.sql(f"""
-            CALL {cat}.system.expire_snapshots(
-              table => '{db}.{tbl}', older_than => TIMESTAMP '{ts}', retain_last => 1
-            )
-        """).show(truncate=False)
-        log("MAINT", "expire_snapshots done", table=f"{db}.{tbl}")
-    except Exception as e:
-        log("MAINT", f"expire_snapshots skipped: {e}", table=f"{db}.{tbl}")
-
-    try:
-        spark.sql(f"""
-            CALL {cat}.system.remove_orphan_files(
-              table => '{db}.{tbl}', older_than => TIMESTAMP '{ts}'
-            )
-        """).show(truncate=False)
-        log("MAINT", "remove_orphan_files done", table=f"{db}.{tbl}")
-    except Exception as e:
-        log("MAINT", f"remove_orphan_files skipped: {e}", table=f"{db}.{tbl}")
-
-
 def run_maintenance(spark: SparkSession) -> None:
     log("MAINT", "Running maintenance on both tables")
     db = config.ICEBERG_DATABASE
-    _maintain(spark, db, "rental_property")
-    _maintain(spark, db, "property_reviews")
+
+    for tbl in ("rental_property", "property_reviews"):
+        table_ref = f"{db}.{tbl}"
+        expire_snapshots(spark, table_ref)
+        remove_orphan_files(spark, table_ref)
+
     log("MAINT", "Maintenance complete")
 
 
 # -----------------------------------------------------------------------------
-# 4.  Verification
+# 5.  Verification
 # -----------------------------------------------------------------------------
 def verify(written: list[str]) -> None:
     print("\n[PropertyJoiner] ── Sample output files ──")
@@ -189,7 +135,7 @@ def run() -> None:
 
     df_rental, df_reviews   = load_tables(spark)
     df_reviews_clean        = joiner_deduplicate_reviews(df_reviews)
-    df_joined               = joiner_join_tables(df_rental, df_reviews_clean)
+    df_joined               = join_tables(df_rental, df_reviews_clean)
     df_agg                  = joiner_aggregate_per_property(df_joined)
     written                 = generate_json_files(df_agg)
 

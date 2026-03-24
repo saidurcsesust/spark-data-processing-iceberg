@@ -348,25 +348,6 @@ def joiner_deduplicate_reviews(df: DataFrame) -> DataFrame:
     return df_dedup
 
 
-def joiner_join_tables(df_rental: DataFrame, df_reviews: DataFrame) -> DataFrame:
-    shared = {
-        "property_name", "property_slug", "country_code", "currency",
-        "star_rating", "review_score", "published", "data_quality_flag",
-    }
-    df_rev = df_reviews
-    for col in shared:
-        df_rev = df_rev.withColumnRenamed(col, f"r_{col}")
-
-    df_joined = df_rental.join(
-        df_rev,
-        df_rental["id"] == df_rev["gen_id"],
-        how="inner",
-    ).drop("gen_id", "source_id_r")
-
-    log("JOIN", "Join complete", rows=df_joined.count())
-    return df_joined
-
-
 def joiner_aggregate_per_property(df: DataFrame) -> DataFrame:
     df_struct = df.withColumn(
         "review_struct",

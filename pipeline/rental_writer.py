@@ -122,41 +122,7 @@ def write_to_iceberg(spark: SparkSession, df: DataFrame) -> None:
 
 
 # -----------------------------------------------------------------------------
-# 3.  Maintenance
-# -----------------------------------------------------------------------------
-def _cutoff() -> str:
-    from datetime import datetime, timedelta, timezone
-    return (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def run_maintenance(spark: SparkSession) -> None:
-    log("MAINT", "Running maintenance", table=config.ICEBERG_PROPERTY_TABLE)
-    db  = config.ICEBERG_DATABASE
-    tbl = "rental_property"
-    cat = config.ICEBERG_CATALOG
-    ts  = _cutoff()
-
-    try:
-        spark.sql(f"""
-            CALL {cat}.system.expire_snapshots(
-              table => '{db}.{tbl}', older_than => TIMESTAMP '{ts}', retain_last => 1
-            )
-        """).show(truncate=False)
-    except Exception as e:
-        log("MAINT", f"expire_snapshots skipped: {e}")
-
-    try:
-        spark.sql(f"""
-            CALL {cat}.system.remove_orphan_files(
-              table => '{db}.{tbl}', older_than => TIMESTAMP '{ts}'
-            )
-        """).show(truncate=False)
-    except Exception as e:
-        log("MAINT", f"remove_orphan_files skipped: {e}")
-
-
-# -----------------------------------------------------------------------------
-# 4.  Verification
+# 3.  Verification
 # -----------------------------------------------------------------------------
 def verify(spark: SparkSession) -> None:
     print("\n[RentalWriter] ── Rows per country ──")
@@ -207,7 +173,6 @@ def run() -> None:
     final_df, defaulted = rental_build_final_output(matched)
 
     write_to_iceberg(spark, final_df)
-    run_maintenance(spark)
     verify(spark)
 
     log("DONE", "RentalWriter complete", defaulted_prices=defaulted)
