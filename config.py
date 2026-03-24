@@ -14,13 +14,14 @@ APP_NAME = "PropertyPipeline"
 _PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DATA_DIR   = os.path.join(_PROJECT_DIR, "data")
+RAW_DATA_DIR = os.path.join(DATA_DIR, "raw_data")
 OUTPUT_DIR = os.path.join(_PROJECT_DIR, "output")
 LOG_DIR    = os.path.join(_PROJECT_DIR, "logs")
 
 # ── Input files ────────────────────────────────────────────────────────────────
-INPUT_DETAILS_FILE = os.path.join(DATA_DIR, "property.json")
-INPUT_SEARCH_FILE  = os.path.join(DATA_DIR, "search.json")
-INPUT_REVIEWS_FILE = os.path.join(DATA_DIR, "reviews.json")
+INPUT_DETAILS_FILE = os.path.join(RAW_DATA_DIR, "property.json")
+INPUT_SEARCH_FILE  = os.path.join(RAW_DATA_DIR, "search.json")
+INPUT_REVIEWS_FILE = os.path.join(RAW_DATA_DIR, "reviews.json")
 
 # ── Output paths ───────────────────────────────────────────────────────────────
 OUTPUT_FINAL_DIR    = os.path.join(OUTPUT_DIR, "final_output")   # single Parquet
@@ -56,6 +57,6 @@ DEFAULT_PUBLISHED    = True
 NAME_PREFERENCE = ["en-us", "en", "de", "fr", "es"]
 
 # ── Ensure runtime directories exist ──────────────────────────────────────────
-for _d in (OUTPUT_DIR, LOG_DIR, OUTPUT_FINAL_DIR,
+for _d in (OUTPUT_DIR, LOG_DIR, RAW_DATA_DIR, OUTPUT_FINAL_DIR,
            OUTPUT_PROPERTY_DIR, OUTPUT_FINAL_JSON):
     os.makedirs(_d, exist_ok=True)

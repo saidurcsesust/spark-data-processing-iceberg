@@ -12,21 +12,24 @@ property-pipeline/
 │
 ├── config.py                        paths, Iceberg identifiers, defaults
 ├── logger.py                        structured logger (stdout + JSONL file)
+├── spark_utils.py                   shared SparkSession builder
 ├── main.py                          full pipeline orchestrator
 │
 ├── pipeline/
 │   ├── rental_writer.py             step 1 — writes rental_property table
 │   ├── reviews_writer.py            step 2 — writes property_reviews table
 │   ├── json_generator.py            step 3 — generates property_data/*.json
-│   └── property_joiner.py          step 4 — joins tables → final_data/*.json
+│   ├── property_joiner.py           step 4 — joins tables → final_data/*.json
+│   └── transform.py                 shared transformation functions
 │
 ├── notebooks/
 │   └── iceberg_viewer.ipynb         pyspark.sql explorer (12 queries)
 │
 ├── data/
-│   ├── property.json                source — 99 properties
-│   ├── search.json                  source — search/pricing feed
-│   ├── reviews.json                 source — 160 reviews
+│   ├── raw_data/
+│   │   ├── property.json            source — 99 properties
+│   │   ├── search.json              source — search/pricing feed
+│   │   └── reviews.json             source — 160 reviews
 │   ├── property_data/               step 3 output (gitignored)
 │   └── final_data/                  step 4 output (gitignored)
 │
@@ -91,11 +94,11 @@ Runs `expire_snapshots` and `remove_orphan_files` on both source tables.
 # Full pipeline (all 4 steps in order)
 python main.py
 
-# Individual steps
-python pipeline/rental_writer.py
-python pipeline/reviews_writer.py
-python pipeline/json_generator.py
-python pipeline/property_joiner.py
+# Individual steps (run from Python)
+python -c "from pipeline.rental_writer import run; run()"
+python -c "from pipeline.reviews_writer import run; run()"
+python -c "from pipeline.json_generator import run; run()"
+python -c "from pipeline.property_joiner import run; run()"
 
 # Jupyter notebook
 jupyter notebook notebooks/iceberg_viewer.ipynb
