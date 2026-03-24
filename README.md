@@ -94,12 +94,6 @@ Runs `expire_snapshots` and `remove_orphan_files` on both source tables.
 # Full pipeline (all 4 steps in order)
 python main.py
 
-# Individual steps (run from Python)
-python -c "from pipeline.rental_writer import run; run()"
-python -c "from pipeline.reviews_writer import run; run()"
-python -c "from pipeline.json_generator import run; run()"
-python -c "from pipeline.property_joiner import run; run()"
-
 # Jupyter notebook
 jupyter notebook notebooks/iceberg_viewer.ipynb
 ```
