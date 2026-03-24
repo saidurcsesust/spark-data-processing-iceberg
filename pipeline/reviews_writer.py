@@ -94,65 +94,6 @@ def write_to_iceberg(spark: SparkSession, df: DataFrame) -> None:
 
 
 # -----------------------------------------------------------------------------
-# 3.  Maintenance
-# -----------------------------------------------------------------------------
-def _cutoff() -> str:
-    from datetime import datetime, timedelta, timezone
-    return (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def run_maintenance(spark: SparkSession) -> None:
-    log("MAINT", "Running maintenance", table=config.ICEBERG_REVIEWS_TABLE)
-    db  = config.ICEBERG_DATABASE
-    tbl = "property_reviews"
-    cat = config.ICEBERG_CATALOG
-    ts  = _cutoff()
-
-    try:
-        spark.sql(f"""
-            CALL {cat}.system.expire_snapshots(
-              table => '{db}.{tbl}', older_than => TIMESTAMP '{ts}', retain_last => 1
-            )
-        """).show(truncate=False)
-    except Exception as e:
-        log("MAINT", f"expire_snapshots skipped: {e}")
-
-    try:
-        spark.sql(f"""
-            CALL {cat}.system.remove_orphan_files(
-              table => '{db}.{tbl}', older_than => TIMESTAMP '{ts}'
-            )
-        """).show(truncate=False)
-    except Exception as e:
-        log("MAINT", f"remove_orphan_files skipped: {e}")
-
-
-# -----------------------------------------------------------------------------
-# 4.  Verification
-# -----------------------------------------------------------------------------
-def verify(spark: SparkSession) -> None:
-    print("\n[ReviewsWriter] ── Rows per partition ──")
-    spark.sql(f"""
-        SELECT country_code, review_year, COUNT(*) AS cnt
-        FROM   {config.ICEBERG_REVIEWS_TABLE}
-        GROUP BY country_code, review_year
-        ORDER BY country_code, review_year
-    """).show(50, truncate=False)
-
-    print("\n[ReviewsWriter] ── Snapshot history ──")
-    spark.sql(f"""
-        SELECT snapshot_id, committed_at, operation
-        FROM   {config.ICEBERG_REVIEWS_TABLE}.snapshots
-    """).show(truncate=False)
-
-    print("\n[ReviewsWriter] ── Partition files ──")
-    spark.sql(f"""
-        SELECT partition, record_count, file_count
-        FROM   {config.ICEBERG_REVIEWS_TABLE}.partitions ORDER BY partition
-    """).show(50, truncate=False)
-
-
-# -----------------------------------------------------------------------------
 # Runner
 # -----------------------------------------------------------------------------
 def run() -> None:
@@ -169,8 +110,6 @@ def run() -> None:
     df_iceberg   = reviews_prepare_for_iceberg(df_enriched)
 
     write_to_iceberg(spark, df_iceberg)
-    run_maintenance(spark)
-    verify(spark)
 
     log("DONE", "ReviewsWriter complete")
     flush_logs()

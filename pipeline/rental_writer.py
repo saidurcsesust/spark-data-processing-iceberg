@@ -5,7 +5,7 @@ Reads property.json and search.json, builds the standardized
 rental_property DataFrame, and writes it to the Iceberg catalog.
 
 Table     : local.property_db.rental_property
-Format    : Parquet / Snappy
+Format    : Parquet
 Partition : country_code
 Maintenance: expire_snapshots + remove_orphan_files
 
@@ -18,10 +18,9 @@ Pipeline
   4. Deduplicate on source_id
   5. Inner join details × search  →  matched
   6. Build 13-column final output + data_quality_flag
-  7. Write  →  single Parquet file  (output/final_output/)
-  8. Write  →  Iceberg table        (rental_property)
+  7. Write  -->  single Parquet file  (output/final_output/)
+  8. Write  -->  Iceberg table        (rental_property)
   9. Expire snapshots + remove orphan files
- 10. Verify written data
 """
 
 from pyspark.sql import SparkSession, DataFrame
@@ -78,13 +77,13 @@ def load_sources(spark: SparkSession) -> tuple[DataFrame, DataFrame]:
 
 
 # -----------------------------------------------------------------------------
-# 2.  Write
+# 2.  Create Iceberg Table
 # -----------------------------------------------------------------------------
 def _create_table(spark: SparkSession) -> None:
     spark.sql(f"CREATE DATABASE IF NOT EXISTS "
               f"{config.ICEBERG_CATALOG}.{config.ICEBERG_DATABASE}")
     spark.sql(f"""
-        CREATE TABLE IF NOT EXISTS {config.ICEBERG_PROPERTY_TABLE} (
+        CREATE TABLE IF NOT EXISTS {config.ICEBERG_RENTALS_TABLE} (
             id                STRING  NOT NULL,
             feed_provider_id  STRING,
             property_name     STRING,
@@ -109,6 +108,9 @@ def _create_table(spark: SparkSession) -> None:
     log("DDL", "rental_property table ready", table=config.ICEBERG_PROPERTY_TABLE)
 
 
+# id, feed_provider_id, property_name, property_slug, country_code,
+# currency, usd_price, star_rating, review_score, commission, meal_plan, published}
+
 def write_to_iceberg(spark: SparkSession, df: DataFrame) -> None:
     # single-file Parquet backup
     log("WRITE", "Single-file Parquet write", path=config.OUTPUT_FINAL_DIR)
@@ -119,64 +121,6 @@ def write_to_iceberg(spark: SparkSession, df: DataFrame) -> None:
     _create_table(spark)
     ordered_df.writeTo(config.ICEBERG_PROPERTY_TABLE).overwritePartitions()
     log("WRITE", "Iceberg write complete", table=config.ICEBERG_PROPERTY_TABLE)
-
-
-# -----------------------------------------------------------------------------
-# 3.  Maintenance
-# -----------------------------------------------------------------------------
-def _cutoff() -> str:
-    from datetime import datetime, timedelta, timezone
-    return (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def run_maintenance(spark: SparkSession) -> None:
-    log("MAINT", "Running maintenance", table=config.ICEBERG_PROPERTY_TABLE)
-    db  = config.ICEBERG_DATABASE
-    tbl = "rental_property"
-    cat = config.ICEBERG_CATALOG
-    ts  = _cutoff()
-
-    try:
-        spark.sql(f"""
-            CALL {cat}.system.expire_snapshots(
-              table => '{db}.{tbl}', older_than => TIMESTAMP '{ts}', retain_last => 1
-            )
-        """).show(truncate=False)
-    except Exception as e:
-        log("MAINT", f"expire_snapshots skipped: {e}")
-
-    try:
-        spark.sql(f"""
-            CALL {cat}.system.remove_orphan_files(
-              table => '{db}.{tbl}', older_than => TIMESTAMP '{ts}'
-            )
-        """).show(truncate=False)
-    except Exception as e:
-        log("MAINT", f"remove_orphan_files skipped: {e}")
-
-
-# -----------------------------------------------------------------------------
-# 4.  Verification
-# -----------------------------------------------------------------------------
-def verify(spark: SparkSession) -> None:
-    print("\n[RentalWriter] ── Rows per country ──")
-    spark.sql(f"""
-        SELECT country_code, COUNT(*) AS cnt
-        FROM   {config.ICEBERG_PROPERTY_TABLE}
-        GROUP BY country_code ORDER BY cnt DESC
-    """).show(30, truncate=False)
-
-    print("\n[RentalWriter] ── Snapshot history ──")
-    spark.sql(f"""
-        SELECT snapshot_id, committed_at, operation
-        FROM   {config.ICEBERG_PROPERTY_TABLE}.snapshots
-    """).show(truncate=False)
-
-    print("\n[RentalWriter] ── Partition files ──")
-    spark.sql(f"""
-        SELECT partition, record_count, file_count
-        FROM   {config.ICEBERG_PROPERTY_TABLE}.partitions ORDER BY partition
-    """).show(30, truncate=False)
 
 
 # -----------------------------------------------------------------------------
@@ -207,8 +151,6 @@ def run() -> None:
     final_df, defaulted = rental_build_final_output(matched)
 
     write_to_iceberg(spark, final_df)
-    run_maintenance(spark)
-    verify(spark)
 
     log("DONE", "RentalWriter complete", defaulted_prices=defaulted)
     flush_logs()
