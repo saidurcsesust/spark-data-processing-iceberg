@@ -34,9 +34,9 @@ ICEBERG_WAREHOUSE = os.path.join(_PROJECT_DIR, "warehouse")
 ICEBERG_DATABASE  = "property_db"
 
 # ── Iceberg tables ─────────────────────────────────────────────────────────────
-ICEBERG_PROPERTY_TABLE = f"{ICEBERG_CATALOG}.{ICEBERG_DATABASE}.rental_property"
+ICEBERG_RENTALS_TABLE = f"{ICEBERG_CATALOG}.{ICEBERG_DATABASE}.rental_property"
 ICEBERG_REVIEWS_TABLE  = f"{ICEBERG_CATALOG}.{ICEBERG_DATABASE}.property_reviews"
-ICEBERG_JOINED_TABLE   = f"{ICEBERG_CATALOG}.{ICEBERG_DATABASE}.property_full"
+ICEBERG_RENTALS_REVIEWS_TABLE   = f"{ICEBERG_CATALOG}.{ICEBERG_DATABASE}.rental_reviews"
 
 # ── Partition keys ─────────────────────────────────────────────────────────────
 PARTITION_PROPERTY = "country_code"

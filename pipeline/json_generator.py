@@ -37,7 +37,11 @@ if _PROJECT_DIR not in sys.path:
 import config
 from spark_utils import build_spark
 from logger import log, flush_logs
-from pipeline.transform import json_deduplicate, json_aggregate_per_property
+from pipeline.transform import (
+    REVIEWS_TABLE_GROUP_COLUMNS,
+    aggregate_reviews_per_property,
+    deduplicate_reviews,
+)
 
 _OUTPUT_DIR = config.OUTPUT_PROPERTY_DIR
 os.makedirs(_OUTPUT_DIR, exist_ok=True)
@@ -106,18 +110,6 @@ def generate_json_files(df_agg: DataFrame) -> list[str]:
 
 
 # -----------------------------------------------------------------------------
-# 3.  Verification
-# -----------------------------------------------------------------------------
-def verify(written: list[str]) -> None:
-    print("\n[JsonGenerator] ── Sample files ──")
-    for path in written[:5]:
-        print(f"  {path}")
-    if len(written) > 5:
-        print(f"  … and {len(written) - 5} more")
-    print(f"\n[JsonGenerator] Total: {len(written)} files → {_OUTPUT_DIR}")
-
-
-# -----------------------------------------------------------------------------
 # Runner
 # -----------------------------------------------------------------------------
 def run() -> None:
@@ -125,10 +117,11 @@ def run() -> None:
 
     spark    = build_spark("JsonGenerator")
     df_raw   = read_reviews_table(spark)
-    df_dedup = json_deduplicate(df_raw)
-    df_agg   = json_aggregate_per_property(df_dedup)
+    df_dedup = deduplicate_reviews(df_raw)
+    df_agg   = aggregate_reviews_per_property(
+        df_dedup, REVIEWS_TABLE_GROUP_COLUMNS, "gen_id"
+    )
     written  = generate_json_files(df_agg)
-    verify(written)
 
     log("DONE", "JsonGenerator complete", files_written=len(written))
     flush_logs()

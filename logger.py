@@ -27,12 +27,12 @@ from typing import Any
 
 import config
 
-# ── internal buffer ────────────────────────────────────────────────────────────
+# internal buffer 
 _records: list[dict] = []
 _LOG_PATH = os.path.join(config.LOG_DIR, "pipeline.jsonl")
 
 
-# ── public API ─────────────────────────────────────────────────────────────────
+# public API 
 
 def log(step: str, message: str, **kwargs: Any) -> None:
     """
@@ -65,7 +65,7 @@ def flush_logs() -> None:
     print(f"[logger] Logs flushed → {_LOG_PATH}", flush=True)
 
 
-# ── legacy helper (used by src/main.py ASSI2) ──────────────────────────────────
+# legacy helper (used by src/main.py ASSI2) 
 
 def build_logger(script_path: str) -> tuple[logging.Logger, str]:
     """

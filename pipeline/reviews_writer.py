@@ -94,31 +94,6 @@ def write_to_iceberg(spark: SparkSession, df: DataFrame) -> None:
 
 
 # -----------------------------------------------------------------------------
-# 3.  Verification
-# -----------------------------------------------------------------------------
-def verify(spark: SparkSession) -> None:
-    print("\n[ReviewsWriter] ── Rows per partition ──")
-    spark.sql(f"""
-        SELECT country_code, review_year, COUNT(*) AS cnt
-        FROM   {config.ICEBERG_REVIEWS_TABLE}
-        GROUP BY country_code, review_year
-        ORDER BY country_code, review_year
-    """).show(50, truncate=False)
-
-    print("\n[ReviewsWriter] ── Snapshot history ──")
-    spark.sql(f"""
-        SELECT snapshot_id, committed_at, operation
-        FROM   {config.ICEBERG_REVIEWS_TABLE}.snapshots
-    """).show(truncate=False)
-
-    print("\n[ReviewsWriter] ── Partition files ──")
-    spark.sql(f"""
-        SELECT partition, record_count, file_count
-        FROM   {config.ICEBERG_REVIEWS_TABLE}.partitions ORDER BY partition
-    """).show(50, truncate=False)
-
-
-# -----------------------------------------------------------------------------
 # Runner
 # -----------------------------------------------------------------------------
 def run() -> None:
@@ -135,7 +110,6 @@ def run() -> None:
     df_iceberg   = reviews_prepare_for_iceberg(df_enriched)
 
     write_to_iceberg(spark, df_iceberg)
-    verify(spark)
 
     log("DONE", "ReviewsWriter complete")
     flush_logs()

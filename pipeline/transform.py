@@ -19,26 +19,72 @@ from pyspark.sql.types import (
 import config
 from logger import log
 
+REVIEWS_TABLE_GROUP_COLUMNS = [
+    "property_id",
+    "gen_id",
+    "property_name",
+    "property_slug",
+    "country_code",
+    "currency",
+    "star_rating",
+    "review_score",
+    "published",
+    "data_quality_flag",
+]
+
+JOINED_RENTAL_GROUP_COLUMNS = [
+    "id",
+    "feed_provider_id",
+    "property_name",
+    "property_slug",
+    "country_code",
+    "currency",
+    "usd_price",
+    "star_rating",
+    "review_score",
+    "commission",
+    "meal_plan",
+    "published",
+    "data_quality_flag",
+]
+
 
 # -----------------------------------------------------------------------------
 # Rental writer transformations
 # -----------------------------------------------------------------------------
 
-def rental_extract_details(df: DataFrame) -> DataFrame:
-    """Flatten property.json → source_id, property_name, country_code,
-    currency, star_rating, review_score."""
-    log("EXTRACT", "Extracting details fields")
+def _preferred_name_column(df: DataFrame) -> F.Column:
     name_fields = [f.name for f in df.schema["name"].dataType.fields]
     ordered = (
         [f for f in config.NAME_PREFERENCE if f in name_fields]
         + [f for f in name_fields if f not in config.NAME_PREFERENCE]
     )
     name_cols = [F.col(f"`name`.`{field}`") for field in ordered]
-    best_name = F.coalesce(*name_cols) if len(name_cols) > 1 else name_cols[0]
+    return F.coalesce(*name_cols) if len(name_cols) > 1 else name_cols[0]
+
+
+def _make_slug(col: F.Column, ascii_only: bool = False) -> F.Column:
+    if ascii_only:
+        return F.lower(F.regexp_replace(F.trim(col), r"[^a-zA-Z0-9]+", "-"))
+
+    return (
+        F.regexp_replace(
+            F.regexp_replace(
+                F.regexp_replace(
+                    F.regexp_replace(F.trim(F.lower(col)), r"[^\w\s-]", ""),
+                    r"[\s_]+", "-"),
+                r"-{2,}", "-"),
+            r"^-|-$", "")
+    )
+
+def rental_extract_details(df: DataFrame) -> DataFrame:
+    """Flatten property.json → source_id, property_name, country_code,
+    currency, star_rating, review_score."""
+    log("EXTRACT", "Extracting details fields")
 
     return df.select(
         F.col("id").cast(StringType()).alias("source_id"),
-        best_name.alias("property_name"),
+        _preferred_name_column(df).alias("property_name"),
         F.trim(F.upper(F.col("location.country"))).alias("country_code"),
         F.col("currency"),
         F.col("rating.stars").cast(DoubleType()).alias("star_rating"),
@@ -92,10 +138,6 @@ def rental_join_details_search(
     return matched, unmatched
 
 
-def _rental_make_slug(col: F.Column) -> F.Column:
-    return F.lower(F.regexp_replace(F.trim(col), r"[^a-zA-Z0-9]+", "-"))
-
-
 def rental_build_final_output(matched_df: DataFrame) -> tuple[DataFrame, int]:
     """Produce the 13-column standardized DataFrame + data_quality_flag."""
     log("TRANSFORM", "Building final output")
@@ -105,7 +147,7 @@ def rental_build_final_output(matched_df: DataFrame) -> tuple[DataFrame, int]:
         F.concat_ws("-", F.lit("GEN"), F.col("source_id")).alias("id"),
         F.col("source_id").alias("feed_provider_id"),
         F.col("property_name"),
-        _rental_make_slug(F.col("property_name")).alias("property_slug"),
+        _make_slug(F.col("property_name"), ascii_only=True).alias("property_slug"),
         F.col("country_code"),
         F.coalesce(F.col("currency"), F.lit(config.DEFAULT_CURRENCY)).alias("currency"),
         F.coalesce(F.col("usd_price"), F.lit(config.DEFAULT_USD_PRICE))
@@ -145,17 +187,10 @@ def reviews_flatten_properties(df: DataFrame) -> DataFrame:
     """Filter nulls, resolve localised name, extract core fields."""
     log("EXTRACT", "Flattening properties")
     df_clean = df.filter(F.col("id").isNotNull())
-    name_fields = [f.name for f in df.schema["name"].dataType.fields]
-    ordered = (
-        [f for f in config.NAME_PREFERENCE if f in name_fields]
-        + [f for f in name_fields if f not in config.NAME_PREFERENCE]
-    )
-    name_cols = [F.col(f"`name`.`{field}`") for field in ordered]
-    best_name = F.coalesce(*name_cols) if len(name_cols) > 1 else name_cols[0]
 
     return df_clean.select(
         F.col("id").cast("long").alias("source_id"),
-        best_name.alias("raw_name"),
+        _preferred_name_column(df).alias("raw_name"),
         F.col("location.city").alias("raw_city"),
         F.col("currency").alias("raw_currency"),
         F.col("location.country").alias("raw_country"),
@@ -193,18 +228,6 @@ def reviews_flatten_reviews(df: DataFrame) -> DataFrame:
     )
 
 
-def _reviews_make_slug(col: F.Column) -> F.Column:
-    return (
-        F.regexp_replace(
-            F.regexp_replace(
-                F.regexp_replace(
-                    F.regexp_replace(F.trim(F.lower(col)), r"[^\w\s-]", ""),
-                    r"[\s_]+", "-"),
-                r"-{2,}", "-"),
-            r"^-|-$", "")
-    )
-
-
 def reviews_join_and_enrich(df_prop: DataFrame, df_rev: DataFrame) -> DataFrame:
     """Left-join then add gen_id, slug, country_code, quality flag."""
     log("JOIN", "Joining properties × reviews")
@@ -219,7 +242,7 @@ def reviews_join_and_enrich(df_prop: DataFrame, df_rev: DataFrame) -> DataFrame:
         df_joined
         .withColumn("gen_id", F.concat(F.lit("GEN-"), F.col("source_id").cast("string")))
         .withColumn("feed_provider_id", F.col("source_id").cast("string"))
-        .withColumn("property_slug", _reviews_make_slug(F.col("property_name")))
+        .withColumn("property_slug", _make_slug(F.col("property_name")))
         .withColumn("country_code", F.upper(F.col("raw_country")))
         .withColumn(
             "currency",
@@ -287,7 +310,23 @@ def reviews_prepare_for_iceberg(df: DataFrame) -> DataFrame:
 # Json generator transformations
 # -----------------------------------------------------------------------------
 
-def json_deduplicate(df: DataFrame) -> DataFrame:
+_REVIEW_STRUCT_COLUMNS = (
+    "review_id",
+    "review_date",
+    "review_year",
+    "review_individual_score",
+    "review_language",
+    "review_summary",
+    "review_positive",
+    "review_negative",
+    "reviewer_name",
+    "reviewer_country",
+    "reviewer_travel_purpose",
+    "reviewer_type",
+)
+
+
+def deduplicate_reviews(df: DataFrame) -> DataFrame:
     before = df.count()
     df_dedup = df.dropDuplicates(["gen_id", "review_id"])
     dropped = before - df_dedup.count()
@@ -298,86 +337,26 @@ def json_deduplicate(df: DataFrame) -> DataFrame:
     return df_dedup
 
 
-def json_aggregate_per_property(df: DataFrame) -> DataFrame:
+def aggregate_reviews_per_property(
+    df: DataFrame, group_columns: list[str], order_column: str
+) -> DataFrame:
     df_struct = df.withColumn(
         "review_struct",
         F.when(
             F.col("review_id").isNotNull(),
-            F.struct(
-                F.col("review_id"), F.col("review_date"), F.col("review_year"),
-                F.col("review_individual_score"), F.col("review_language"),
-                F.col("review_summary"), F.col("review_positive"),
-                F.col("review_negative"), F.col("reviewer_name"),
-                F.col("reviewer_country"), F.col("reviewer_travel_purpose"),
-                F.col("reviewer_type"),
-            ),
+            F.struct(*[F.col(col) for col in _REVIEW_STRUCT_COLUMNS]),
         ).otherwise(F.lit(None)),
     )
 
     df_agg = (
         df_struct
-        .groupBy(
-            "property_id", "gen_id", "property_name", "property_slug",
-            "country_code", "currency", "star_rating", "review_score",
-            "published", "data_quality_flag",
-        )
+        .groupBy(*group_columns)
         .agg(
             F.collect_list(
                 F.when(F.col("review_struct").isNotNull(), F.col("review_struct"))
             ).alias("reviews")
         )
-        .orderBy("gen_id")
-    )
-
-    log("AGG", "Aggregated per property", distinct_properties=df_agg.count())
-    return df_agg
-
-
-# -----------------------------------------------------------------------------
-# Property joiner transformations
-# -----------------------------------------------------------------------------
-
-def joiner_deduplicate_reviews(df: DataFrame) -> DataFrame:
-    before = df.count()
-    df_dedup = df.dropDuplicates(["gen_id", "review_id"])
-    dropped = before - df_dedup.count()
-    if dropped:
-        log("DEDUP", "Removed duplicate review rows", dropped=dropped)
-    else:
-        log("DEDUP", "No duplicates found", rows=df_dedup.count())
-    return df_dedup
-
-
-def joiner_aggregate_per_property(df: DataFrame) -> DataFrame:
-    df_struct = df.withColumn(
-        "review_struct",
-        F.when(
-            F.col("review_id").isNotNull(),
-            F.struct(
-                F.col("review_id"), F.col("review_date"), F.col("review_year"),
-                F.col("review_individual_score"), F.col("review_language"),
-                F.col("review_summary"), F.col("review_positive"),
-                F.col("review_negative"), F.col("reviewer_name"),
-                F.col("reviewer_country"), F.col("reviewer_travel_purpose"),
-                F.col("reviewer_type"),
-            ),
-        ).otherwise(F.lit(None)),
-    )
-
-    df_agg = (
-        df_struct
-        .groupBy(
-            "id", "feed_provider_id", "property_name", "property_slug",
-            "country_code", "currency", "usd_price", "star_rating",
-            "review_score", "commission", "meal_plan", "published",
-            "data_quality_flag",
-        )
-        .agg(
-            F.collect_list(
-                F.when(F.col("review_struct").isNotNull(), F.col("review_struct"))
-            ).alias("reviews")
-        )
-        .orderBy("id")
+        .orderBy(order_column)
     )
 
     log("AGG", "Aggregated per property", distinct_properties=df_agg.count())

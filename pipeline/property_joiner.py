@@ -52,9 +52,9 @@ import config
 from spark_utils import build_spark
 from logger import log, flush_logs
 from pipeline.transform import (
-    joiner_deduplicate_reviews,
-    joiner_aggregate_per_property,
-    
+    JOINED_RENTAL_GROUP_COLUMNS,
+    aggregate_reviews_per_property,
+    deduplicate_reviews,
 )
 from pipeline.json_generator import generate_json_files
 from snapshot import expire_snapshots, remove_orphan_files
@@ -114,18 +114,6 @@ def run_maintenance(spark: SparkSession) -> None:
 
 
 # -----------------------------------------------------------------------------
-# 5.  Verification
-# -----------------------------------------------------------------------------
-def verify(written: list[str]) -> None:
-    print("\n[PropertyJoiner] ── Sample output files ──")
-    for path in written[:5]:
-        print(f"  {path}")
-    if len(written) > 5:
-        print(f"  … and {len(written) - 5} more")
-    print(f"\n[PropertyJoiner] Total: {len(written)} files → {_OUTPUT_DIR}")
-
-
-# -----------------------------------------------------------------------------
 # Runner
 # -----------------------------------------------------------------------------
 def run() -> None:
@@ -134,13 +122,14 @@ def run() -> None:
     spark = build_spark("PropertyJoiner")
 
     df_rental, df_reviews   = load_tables(spark)
-    df_reviews_clean        = joiner_deduplicate_reviews(df_reviews)
+    df_reviews_clean        = deduplicate_reviews(df_reviews)
     df_joined               = join_tables(df_rental, df_reviews_clean)
-    df_agg                  = joiner_aggregate_per_property(df_joined)
+    df_agg                  = aggregate_reviews_per_property(
+        df_joined, JOINED_RENTAL_GROUP_COLUMNS, "id"
+    )
     written                 = generate_json_files(df_agg)
 
     run_maintenance(spark)
-    verify(written)
 
     log("DONE", "PropertyJoiner complete", files_written=len(written))
     flush_logs()
