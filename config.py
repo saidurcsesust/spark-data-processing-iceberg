@@ -36,7 +36,7 @@ ICEBERG_DATABASE  = "property_db"
 # ── Iceberg tables ─────────────────────────────────────────────────────────────
 ICEBERG_RENTALS_TABLE = f"{ICEBERG_CATALOG}.{ICEBERG_DATABASE}.rental_property"
 ICEBERG_REVIEWS_TABLE  = f"{ICEBERG_CATALOG}.{ICEBERG_DATABASE}.property_reviews"
-ICEBERG_RENTALS_REVIEWS_TABLE   = f"{ICEBERG_CATALOG}.{ICEBERG_DATABASE}.rental_reviews"
+ICEBERG_RENTALS_REVIEWS_TABLE   = f"{ICEBERG_CATALOG}.{ICEBERG_DATABASE}.rentals_reviews"
 
 # ── Partition keys ─────────────────────────────────────────────────────────────
 PARTITION_PROPERTY = "country_code"
@@ -45,6 +45,13 @@ PARTITION_REVIEWS_2 = "review_year"
 
 # ── Spark ──────────────────────────────────────────────────────────────────────
 ICEBERG_JAR = "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.5.2"
+
+# ── Maintenance ────────────────────────────────────────────────────────────────
+# Use a future cutoff during testing so all previous snapshots are eligible
+# except the latest one retained by retain_last.
+MAINTENANCE_EXPIRE_OLDER_THAN = "2099-01-01 00:00:00"
+MAINTENANCE_RETAIN_LAST = 1
+MAINTENANCE_REMOVE_ORPHAN_OLDER_THAN = "2099-01-01 00:00:00"
 
 # ── Field defaults ─────────────────────────────────────────────────────────────
 DEFAULT_CURRENCY     = "USD"

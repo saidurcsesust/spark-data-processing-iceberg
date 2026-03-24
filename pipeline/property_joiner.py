@@ -163,8 +163,17 @@ def run_maintenance(spark: SparkSession) -> None:
 
     for tbl in ("rental_property", "property_reviews"):
         table_ref = f"{db}.{tbl}"
-        expire_snapshots(spark, table_ref)
-        remove_orphan_files(spark, table_ref)
+        expire_snapshots(
+            spark,
+            table_ref,
+            older_than=config.MAINTENANCE_EXPIRE_OLDER_THAN,
+            retain_last=config.MAINTENANCE_RETAIN_LAST,
+        )
+        remove_orphan_files(
+            spark,
+            table_ref,
+            older_than=config.MAINTENANCE_REMOVE_ORPHAN_OLDER_THAN,
+        )
 
     log("MAINT", "Maintenance complete")
 
