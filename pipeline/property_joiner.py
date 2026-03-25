@@ -41,6 +41,7 @@ Output shape
 from __future__ import annotations
 
 from pyspark.sql import SparkSession, DataFrame
+from pyspark.sql import functions as F
 import os, sys, json
 
 _SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
@@ -154,6 +155,11 @@ def generate_json_files(df_agg: DataFrame) -> list[str]:
     return written
 
 
+def add_created_time(df: DataFrame) -> DataFrame:
+    return df.withColumn("create" \
+    "d_time", F.current_timestamp())
+
+
 # -----------------------------------------------------------------------------
 # 4.  Write to Iceberg
 # -----------------------------------------------------------------------------
@@ -179,6 +185,15 @@ def _create_table(spark: SparkSession, df: DataFrame) -> None:
           'write.parquet.compression-codec' = 'snappy'
         )
     """)
+    try:
+        spark.sql(
+            f"""
+            ALTER TABLE {config.ICEBERG_RENTALS_REVIEWS_TABLE}
+            ADD COLUMNS (created_time timestamp)
+            """
+        )
+    except Exception:
+        pass
     log("DDL", "rentals_reviews table ready", table=config.ICEBERG_RENTALS_REVIEWS_TABLE)
 
 
@@ -231,6 +246,7 @@ def run() -> None:
     df_agg                  = aggregate_reviews_per_property(
         df_joined_dedup, JOINED_RENTAL_GROUP_COLUMNS, "id"
     )
+    df_agg                  = add_created_time(df_agg)
     write_to_iceberg(spark, df_agg)
     written                 = generate_json_files(df_agg)
 

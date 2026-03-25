@@ -47,11 +47,10 @@ PARTITION_REVIEWS_2 = "review_year"
 ICEBERG_JAR = "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.5.2"
 
 # ── Maintenance ────────────────────────────────────────────────────────────────
-# Use a future cutoff during testing so all previous snapshots are eligible
-# except the latest one retained by retain_last.
-MAINTENANCE_EXPIRE_OLDER_THAN = "2027-01-01 00:00:00"
+# None uses snapshot.py's default cutoff of 1 day ago.
+MAINTENANCE_EXPIRE_OLDER_THAN = None
 MAINTENANCE_RETAIN_LAST = 1
-MAINTENANCE_REMOVE_ORPHAN_OLDER_THAN = "2027-01-01 00:00:00"
+MAINTENANCE_REMOVE_ORPHAN_OLDER_THAN = None
 
 # ── Field defaults ─────────────────────────────────────────────────────────────
 DEFAULT_CURRENCY     = "USD"
