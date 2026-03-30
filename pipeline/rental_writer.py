@@ -33,7 +33,7 @@ if _PROJECT_DIR not in sys.path:
     sys.path.insert(0, _PROJECT_DIR)
 
 import config
-from spark_utils import build_spark
+from spark_utils import build_spark, repair_local_table_if_needed
 from logger import log, flush_logs
 
 from pipeline.transform import (
@@ -87,6 +87,7 @@ def load_sources(spark: SparkSession) -> tuple[DataFrame, DataFrame]:
 def _create_table(spark: SparkSession) -> None:
     spark.sql(f"CREATE DATABASE IF NOT EXISTS "
               f"{config.ICEBERG_CATALOG}.{config.ICEBERG_DATABASE}")
+    repair_local_table_if_needed(spark, config.ICEBERG_RENTALS_TABLE)
     spark.sql(f"""
         CREATE TABLE IF NOT EXISTS {config.ICEBERG_RENTALS_TABLE} (
             id                STRING  NOT NULL,

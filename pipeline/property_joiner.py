@@ -50,7 +50,7 @@ if _PROJECT_DIR not in sys.path:
     sys.path.insert(0, _PROJECT_DIR)
 
 import config
-from spark_utils import build_spark
+from spark_utils import build_spark, repair_local_table_if_needed
 from logger import log, flush_logs
 from pipeline.transform import (
     JOINED_RENTAL_GROUP_COLUMNS,
@@ -168,6 +168,7 @@ def _create_table(spark: SparkSession, df: DataFrame) -> None:
         f"CREATE DATABASE IF NOT EXISTS "
         f"{config.ICEBERG_CATALOG}.{config.ICEBERG_DATABASE}"
     )
+    repair_local_table_if_needed(spark, config.ICEBERG_RENTALS_REVIEWS_TABLE)
     partition_cols = {config.PARTITION_PROPERTY}
     non_part = [f for f in df.schema.fields if f.name not in partition_cols]
     col_defs = ",\n  ".join(
